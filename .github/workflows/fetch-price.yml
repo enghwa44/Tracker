@@ -15,7 +15,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Fetch KODEX price via Python
+      - name: Fetch price and indices
         run: |
           python3 << 'EOF'
           import urllib.request, json, re
@@ -23,59 +23,55 @@ jobs:
 
           headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'ko-KR,ko;q=0.9',
+            'Accept': 'application/json',
             'Referer': 'https://m.stock.naver.com/',
           }
 
+          def fetch_json(url):
+            try:
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=10) as r:
+                return json.loads(r.read().decode('utf-8'))
+            except Exception as e:
+              print(f"실패 {url}: {e}")
+              return None
+
           price = 0
+          kospi200 = 0
+          vkospi = 0
 
-          # 1. 네이버 모바일 API (실시간 현재가)
-          try:
-            req = urllib.request.Request(
-              'https://m.stock.naver.com/api/stock/498400/basic',
-              headers=headers
-            )
-            with urllib.request.urlopen(req, timeout=10) as r:
-              d = json.loads(r.read().decode('utf-8'))
-              cp = d.get('closePrice', '0')
-              price = int(str(cp).replace(',', ''))
-              print(f"네이버 모바일 basic: {price}")
-          except Exception as e:
-            print(f"네이버 모바일 basic 실패: {e}")
+          # KODEX 498400 현재가
+          d = fetch_json('https://m.stock.naver.com/api/stock/498400/basic')
+          if d:
+            cp = str(d.get('closePrice','0')).replace(',','')
+            price = int(cp) if cp.isdigit() else 0
+            print(f"KODEX: {price}")
 
-          # 2. 네이버 실시간 polling API
-          if not price:
-            try:
-              req = urllib.request.Request(
-                'https://polling.finance.naver.com/api/realtime/domestic/stock/498400',
-                headers=headers
-              )
-              with urllib.request.urlopen(req, timeout=10) as r:
-                d = json.loads(r.read().decode('utf-8'))
-                cp = d.get('datas', [{}])[0].get('closePrice', '0')
-                price = int(str(cp).replace(',', ''))
-                print(f"네이버 polling: {price}")
-            except Exception as e:
-              print(f"네이버 polling 실패: {e}")
+          # 코스피200 지수
+          d2 = fetch_json('https://m.stock.naver.com/api/index/KOSPI200/basic')
+          if d2:
+            cp2 = str(d2.get('closePrice','0')).replace(',','')
+            try: kospi200 = float(cp2)
+            except: pass
+            print(f"KOSPI200: {kospi200}")
 
-          # 3. Yahoo Finance
-          if not price:
-            try:
-              req = urllib.request.Request(
-                'https://query1.finance.yahoo.com/v8/finance/quote?symbols=498400.KS',
-                headers={**headers, 'Accept': 'application/json'}
-              )
-              with urllib.request.urlopen(req, timeout=10) as r:
-                d = json.loads(r.read())
-                res = d['quoteResponse']['result']
-                if res:
-                  price = int(res[0].get('regularMarketPrice') or res[0].get('previousClose') or 0)
-                  print(f"Yahoo: {price}")
-            except Exception as e:
-              print(f"Yahoo 실패: {e}")
+          # V-KOSPI200 지수
+          for code in ['VKOSPI', 'KOSPI%20VIX', 'VKOSPI200']:
+            d3 = fetch_json(f'https://m.stock.naver.com/api/index/{code}/basic')
+            if d3:
+              cp3 = str(d3.get('closePrice','0')).replace(',','')
+              try:
+                vkospi = float(cp3)
+                print(f"V-KOSPI ({code}): {vkospi}")
+                break
+            except: pass
 
-          out = json.dumps({"price": price, "updated": datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')})
+          out = json.dumps({
+            "price": price,
+            "kospi200": kospi200,
+            "vkospi": vkospi,
+            "updated": datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+          })
           print(f"최종: {out}")
           with open('price.json', 'w') as f:
             f.write(out)
