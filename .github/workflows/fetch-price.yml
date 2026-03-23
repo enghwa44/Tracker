@@ -15,23 +15,71 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Write price.json
+      - name: Fetch KODEX price via Python
         run: |
-          PRICE=$(curl -s "https://query1.finance.yahoo.com/v7/finance/quote?symbols=498400.KS" \
-            -H "Accept: application/json" | \
-            python3 -c "
-          import sys, json
+          python3 << 'EOF'
+          import urllib.request, json, re
+
+          headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'ko-KR,ko;q=0.9',
+          }
+
+          price = 0
+
+          # 1. 네이버 금융
           try:
-            d = json.load(sys.stdin)
-            r = d['quoteResponse']['result'][0]
-            p = r.get('regularMarketPrice') or r.get('previousClose')
-            print(int(p))
-          except:
-            print(0)
-          ")
-          echo "Price: $PRICE"
-          echo "{\"price\": $PRICE, \"updated\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > price.json
-          cat price.json
+            req = urllib.request.Request(
+              'https://finance.naver.com/item/main.naver?code=498400',
+              headers=headers
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+              txt = r.read().decode('euc-kr', errors='ignore')
+              m = re.search(r'_nowVal[^>]*>([0-9,]+)', txt)
+              if m:
+                price = int(m.group(1).replace(',', ''))
+                print(f"네이버: {price}")
+          except Exception as e:
+            print(f"네이버 실패: {e}")
+
+          # 2. 네이버 모바일
+          if not price:
+            try:
+              req = urllib.request.Request(
+                'https://m.stock.naver.com/api/stock/498400/integration',
+                headers={**headers, 'Referer': 'https://m.stock.naver.com/'}
+              )
+              with urllib.request.urlopen(req, timeout=10) as r:
+                d = json.loads(r.read())
+                cp = d.get('dealTrendInfos', [{}])[0].get('closePrice', '0')
+                price = int(str(cp).replace(',', ''))
+                print(f"네이버모바일: {price}")
+            except Exception as e:
+              print(f"네이버모바일 실패: {e}")
+
+          # 3. Yahoo Finance
+          if not price:
+            try:
+              req = urllib.request.Request(
+                'https://query1.finance.yahoo.com/v8/finance/quote?symbols=498400.KS',
+                headers={**headers, 'Accept': 'application/json'}
+              )
+              with urllib.request.urlopen(req, timeout=10) as r:
+                d = json.loads(r.read())
+                res = d['quoteResponse']['result']
+                if res:
+                  price = int(res[0].get('regularMarketPrice') or res[0].get('previousClose') or 0)
+                  print(f"Yahoo: {price}")
+            except Exception as e:
+              print(f"Yahoo 실패: {e}")
+
+          from datetime import datetime
+          out = json.dumps({"price": price, "updated": datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')})
+          print(f"결과: {out}")
+          with open('price.json', 'w') as f:
+            f.write(out)
+          EOF
 
       - name: Commit and push
         run: |
