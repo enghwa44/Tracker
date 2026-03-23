@@ -22,11 +22,11 @@ def get_json(url):
     print("fail json", url, e)
     return None
 
-def get_html(url):
+def get_html(url, enc="euc-kr"):
   try:
     req = urllib.request.Request(url, headers=headers_html)
     with urllib.request.urlopen(req, timeout=10) as r:
-      return r.read().decode("euc-kr", errors="ignore")
+      return r.read().decode(enc, errors="ignore")
   except Exception as e:
     print("fail html", url, e)
     return None
@@ -47,44 +47,17 @@ if d2:
   except: pass
 print("KOSPI200:", kospi200)
 
-# V-KOSPI200 - 현재값(now) 영역에서만 파싱, 범위 10~150
+# V-KOSPI200 - HTML 디버그 출력
 txt = get_html("https://finance.naver.com/sise/sise_index.naver?code=KOSPI_VIX")
 if txt:
-  # now 영역 추출 후 첫 번째 소수점 숫자
-  now_section = re.search(r'now[^<]{0,200}?([\d]{2,3}\.\d{2})', txt)
-  if now_section:
-    try:
-      v = float(now_section.group(1))
-      if 5 < v < 150:
-        vkospi = v
-        print("VKOSPI (now section):", vkospi)
-    except: pass
+  # 처음 3000자 출력 (로그에서 패턴 확인용)
+  print("=== VIX HTML SNIPPET ===")
+  print(txt[:3000])
+  print("=== END SNIPPET ===")
+else:
+  print("VIX HTML 가져오기 실패")
 
-  if not vkospi:
-    # _nowVal 패턴
-    m = re.search(r'_nowVal[^>]*>([\d]{2,3}\.\d{2})', txt)
-    if m:
-      try:
-        v = float(m.group(1))
-        if 5 < v < 150:
-          vkospi = v
-          print("VKOSPI (_nowVal):", vkospi)
-      except: pass
-
-  if not vkospi:
-    # 전체에서 10~99 범위 소수 첫 번째
-    matches = re.findall(r'\b([1-9]\d\.\d{2})\b', txt[:5000])
-    for mv in matches:
-      try:
-        v = float(mv)
-        if 10 < v < 100:
-          vkospi = v
-          print("VKOSPI (range match):", vkospi)
-          break
-      except: pass
-
-print("VKOSPI final:", vkospi)
-
+print("VKOSPI:", vkospi)
 result = json.dumps({"price":price,"kospi200":kospi200,"vkospi":vkospi,"updated":datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")})
 print("result:", result)
 open("price.json","w").write(result)
