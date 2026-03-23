@@ -1,4 +1,4 @@
-import urllib.request, json, re
+import urllib.request, json, re, urllib.parse
 from datetime import datetime
 
 headers_json = {
@@ -7,13 +7,20 @@ headers_json = {
   "Referer": "https://m.stock.naver.com/",
 }
 
-def get_json(url):
+headers_krx = {
+  "User-Agent": "Mozilla/5.0 Chrome/120.0.0.0 Safari/537.36",
+  "Accept": "application/json, text/plain, */*",
+  "Referer": "https://www.krx.co.kr/",
+  "Origin": "https://www.krx.co.kr",
+}
+
+def get_json(url, headers=None):
   try:
-    req = urllib.request.Request(url, headers=headers_json)
+    req = urllib.request.Request(url, headers=headers or headers_json)
     with urllib.request.urlopen(req, timeout=10) as r:
       return json.loads(r.read().decode("utf-8"))
   except Exception as e:
-    print("fail", url, e)
+    print("fail", url, str(e)[:80])
     return None
 
 price, kospi200, vkospi = 0, 0.0, 0.0
@@ -32,36 +39,34 @@ if d2:
   except: pass
 print("KOSPI200:", kospi200)
 
-# V-KOSPI200 - 네이버 홈 시세 데이터 (multiSise API)
-d3 = get_json("https://m.stock.naver.com/api/stock/VKOSPI/basic")
+# V-KOSPI200 - KRX 공식 API
+today = datetime.utcnow().strftime("%Y%m%d")
+krx_url = f"https://data-dbg.krx.co.kr/svc/apis/idx/volat_idx/getVoltIdxDd?basDd={today}&idxNm=VKOSPI200&apiKey=test"
+d3 = get_json(krx_url, headers_krx)
 if d3:
-  try:
-    vkospi = float(str(d3.get("closePrice","0")).replace(",",""))
-    print("VKOSPI (stock api):", vkospi)
-  except: pass
+  print("KRX response:", str(d3)[:200])
 
-# 대안 1: 네이버 지수 검색 API
+# 대안: KRX 정식 데이터포털
 if not vkospi:
-  d4 = get_json("https://m.stock.naver.com/api/index/VKOSPI200/basic")
-  if d4:
-    try:
-      vkospi = float(str(d4.get("closePrice","0")).replace(",",""))
-      print("VKOSPI (VKOSPI200):", vkospi)
-    except: pass
-
-# 대안 2: 네이버 금융 검색 결과
-if not vkospi:
-  headers_s = {**headers_json, "Accept": "application/json, text/plain"}
+  # 네이버 금융 VKOSPI 직접 데이터 (iframe 소스)
   try:
     req = urllib.request.Request(
-      "https://ac.finance.naver.com/ac?q=VKOSPI&q_enc=UTF-8&t_koreng=1&st=111&r_lt=111",
-      headers=headers_s
+      "https://finance.naver.com/sise/sise_index_day.naver?code=KOSPI_VIX&page=1",
+      headers={**headers_json, "Accept": "text/html", "Accept-Language": "ko-KR"}
     )
     with urllib.request.urlopen(req, timeout=10) as r:
-      txt = r.read().decode("utf-8", errors="ignore")
-      print("search result:", txt[:200])
+      txt = r.read().decode("euc-kr", errors="ignore")
+      # 테이블에서 첫 번째 소수 2자리 숫자 (10~100 범위)
+      nums = re.findall(r'<td[^>]*>\s*(\d{2,3}\.\d{2})\s*</td>', txt)
+      print("VIX table nums:", nums[:10])
+      for n in nums:
+        v = float(n)
+        if 10 < v < 150:
+          vkospi = v
+          print("VKOSPI (table):", vkospi)
+          break
   except Exception as e:
-    print("search fail:", e)
+    print("VIX table fail:", str(e)[:80])
 
 print("VKOSPI final:", vkospi)
 result = json.dumps({"price":price,"kospi200":kospi200,"vkospi":vkospi,"updated":datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")})
