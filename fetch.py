@@ -1,4 +1,4 @@
-import urllib.request, json, re, urllib.parse
+import urllib.request, json, re
 from datetime import datetime
 
 headers_json = {
@@ -47,28 +47,43 @@ if d2:
   except: pass
 print("KOSPI200:", kospi200)
 
-# V-KOSPI200 - 네이버 PC 페이지 파싱
+# V-KOSPI200 - 현재값(now) 영역에서만 파싱, 범위 10~150
 txt = get_html("https://finance.naver.com/sise/sise_index.naver?code=KOSPI_VIX")
 if txt:
-  m = re.search(r'class="num"[^>]*>\s*([\d.]+)', txt)
-  if not m:
-    m = re.search(r'([\d]+\.\d{2})</td>', txt)
-  if m:
+  # now 영역 추출 후 첫 번째 소수점 숫자
+  now_section = re.search(r'now[^<]{0,200}?([\d]{2,3}\.\d{2})', txt)
+  if now_section:
     try:
-      vkospi = float(m.group(1))
-      print("VKOSPI (naver html):", vkospi)
+      v = float(now_section.group(1))
+      if 5 < v < 150:
+        vkospi = v
+        print("VKOSPI (now section):", vkospi)
     except: pass
 
-if not vkospi:
-  # 대안: 네이버 금융 지수 검색
-  txt2 = get_html("https://finance.naver.com/world/sise.naver?symbol=VKOSPI")
-  if txt2:
-    m2 = re.search(r'([\d]+\.\d{2})', txt2[:2000])
-    if m2:
-      try: vkospi = float(m2.group(1))
+  if not vkospi:
+    # _nowVal 패턴
+    m = re.search(r'_nowVal[^>]*>([\d]{2,3}\.\d{2})', txt)
+    if m:
+      try:
+        v = float(m.group(1))
+        if 5 < v < 150:
+          vkospi = v
+          print("VKOSPI (_nowVal):", vkospi)
       except: pass
 
-print("VKOSPI:", vkospi)
+  if not vkospi:
+    # 전체에서 10~99 범위 소수 첫 번째
+    matches = re.findall(r'\b([1-9]\d\.\d{2})\b', txt[:5000])
+    for mv in matches:
+      try:
+        v = float(mv)
+        if 10 < v < 100:
+          vkospi = v
+          print("VKOSPI (range match):", vkospi)
+          break
+      except: pass
+
+print("VKOSPI final:", vkospi)
 
 result = json.dumps({"price":price,"kospi200":kospi200,"vkospi":vkospi,"updated":datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")})
 print("result:", result)
