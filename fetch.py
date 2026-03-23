@@ -1,4 +1,4 @@
-import urllib.request, json
+import urllib.request, json, urllib.parse
 from datetime import datetime
 
 headers = {
@@ -18,26 +18,33 @@ def get(url):
 
 price, kospi200, vkospi = 0, 0.0, 0.0
 
+# KODEX 현재가
 d = get("https://m.stock.naver.com/api/stock/498400/basic")
 if d:
   try: price = int(str(d.get("closePrice","0")).replace(",",""))
   except: pass
 print("KODEX:", price)
 
-d2 = get("https://m.stock.naver.com/api/index/KOSPI200/basic")
-if d2:
-  try: kospi200 = float(str(d2.get("closePrice","0")).replace(",",""))
-  except: pass
-print("KOSPI200:", kospi200)
+# 코스피200 지수 - 여러 코드 시도
+for code in ["KPI200", "KOSPI200", "KS200"]:
+  d2 = get("https://m.stock.naver.com/api/index/" + code + "/basic")
+  if d2 and d2.get("closePrice"):
+    try:
+      kospi200 = float(str(d2.get("closePrice","0")).replace(",",""))
+      if kospi200 > 0:
+        print("KOSPI200 (" + code + "):", kospi200)
+        break
+    except: pass
 
-for code in ["VKOSPI", "KOSPI VIX"]:
-  import urllib.parse
-  d3 = get("https://m.stock.naver.com/api/index/" + urllib.parse.quote(code) + "/basic")
-  if d3:
+# V-KOSPI200 - 여러 코드 시도
+for code in ["VKOSPI", "VIX", "KOSPI_VIX", "KOSPI%20VIX"]:
+  d3 = get("https://m.stock.naver.com/api/index/" + code + "/basic")
+  if d3 and d3.get("closePrice"):
     try:
       vkospi = float(str(d3.get("closePrice","0")).replace(",",""))
-      print("VKOSPI:", vkospi)
-      break
+      if vkospi > 0:
+        print("VKOSPI (" + code + "):", vkospi)
+        break
     except: pass
 
 result = json.dumps({"price":price,"kospi200":kospi200,"vkospi":vkospi,"updated":datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")})
